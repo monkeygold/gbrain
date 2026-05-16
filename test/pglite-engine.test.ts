@@ -947,6 +947,18 @@ describe('PGLiteEngine: Stats & Health', () => {
     expect(health.missing_embeddings).toBe(1); // chunk has no embedding
     expect(health.embed_coverage).toBe(0);
   });
+
+  test('getHealth stale_pages uses timeline event date, not extraction timestamp', async () => {
+    await truncateAll();
+    await engine.putPage('test/fresh-timeline', testPage);
+    await engine.addTimelineEntry('test/fresh-timeline', {
+      date: '2024-01-15',
+      summary: 'Historical event extracted after import',
+    });
+
+    const health = await engine.getHealth();
+    expect(health.stale_pages).toBe(0);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────

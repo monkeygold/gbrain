@@ -3172,7 +3172,11 @@ export class PostgresEngine implements BrainEngine {
         (SELECT count(*) FROM content_chunks WHERE embedded_at IS NOT NULL)::float /
           GREATEST((SELECT count(*) FROM content_chunks), 1)::float as embed_coverage,
         (SELECT count(*) FROM pages p
-         WHERE p.updated_at < (SELECT MAX(te.created_at) FROM timeline_entries te WHERE te.page_id = p.id)
+         -- Use the event date, not the extraction row timestamp. FS extraction
+         -- creates timeline rows after importing the page that already contains
+         -- those events; comparing against created_at makes clean imports look
+         -- stale immediately.
+         WHERE p.updated_at < (SELECT MAX(te.date::timestamptz) FROM timeline_entries te WHERE te.page_id = p.id)
         ) as stale_pages,
         (SELECT count(*) FROM pages p
          WHERE NOT EXISTS (SELECT 1 FROM links l WHERE l.to_page_id = p.id)

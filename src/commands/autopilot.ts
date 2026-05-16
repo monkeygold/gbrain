@@ -83,7 +83,7 @@ export function shouldSpawnAutopilotWorker(args: string[]): boolean {
 export async function runAutopilot(engine: BrainEngine, args: string[]) {
   if (args.includes('--help') || args.includes('-h')) {
     console.log(
-      'Usage: gbrain autopilot [--repo <path>] [--interval N] [--json] [--no-worker]\n' +
+      'Usage: gbrain autopilot [--repo <path>] [--interval N] [--json] [--no-worker] [--no-pull]\n' +
       '       gbrain autopilot --install [--repo <path>]\n' +
       '       gbrain autopilot --uninstall\n' +
       '       gbrain autopilot --status [--json]\n\n' +
@@ -347,15 +347,18 @@ export async function runAutopilot(engine: BrainEngine, args: string[]) {
         const { runCycle } = await import('../core/cycle.ts');
         const report = await runCycle(engine, {
           brainDir: repoPath,
-          // Autopilot daemon path: pulls by default (matches
-          // pre-v0.17 autopilot behavior). CLI dream defaults false
-          // for cron safety; that choice is scoped to dream only.
-          pull: true,
+          // Autopilot daemon path: pulls by default, unless explicitly disabled
+          // for local/PGLite brains without a real remote.
+          pull: !args.includes('--no-pull') && process.env.GBRAIN_AUTOPILOT_NO_PULL !== '1',
           yieldBetweenPhases: async () => {
             await new Promise(r => setImmediate(r));
           },
         });
-        if (report.status === 'failed' || report.status === 'partial') {
+        // A partial cycle can be caused by durable brain-content warnings
+        // (e.g. lint warnings or orphan pages). That should be surfaced in
+        // logs but should not make a long-running local/PGLite autopilot exit
+        // after the failure cap. Only a hard failed cycle counts as unhealthy.
+        if (report.status === 'failed') {
           cycleOk = false;
         }
         if (jsonMode) {
