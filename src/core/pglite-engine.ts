@@ -1227,6 +1227,7 @@ export class PGLiteEngine implements BrainEngine {
     const rowParts: string[] = [];
     const params: unknown[] = [];
     let paramIdx = 1;
+    const fallbackModel = await this.getConfig('embedding_model') ?? 'text-embedding-3-large';
 
     for (const chunk of chunks) {
       const embeddingStr = chunk.embedding
@@ -1239,6 +1240,7 @@ export class PGLiteEngine implements BrainEngine {
         ? chunk.parent_symbol_path
         : null;
       const modality = chunk.modality ?? 'text';
+      const model = chunk.model ?? (embeddingStr ? 'text-embedding-3-large' : fallbackModel);
 
       // Inline ::vector NULL literals to avoid a per-branch placeholder.
       const embeddingPh = embeddingStr ? `$${paramIdx++}::vector` : 'NULL';
@@ -1260,7 +1262,7 @@ export class PGLiteEngine implements BrainEngine {
       if (embeddingImageStr) params.push(embeddingImageStr);
       params.push(
         pageId, chunk.chunk_index, chunk.chunk_text, chunk.chunk_source,
-        chunk.model || 'text-embedding-3-large', chunk.token_count || null,
+        model, chunk.token_count || null,
         chunk.language || null, chunk.symbol_name || null, chunk.symbol_type || null,
         chunk.start_line ?? null, chunk.end_line ?? null,
         parentPath, chunk.doc_comment || null, chunk.symbol_name_qualified || null,
