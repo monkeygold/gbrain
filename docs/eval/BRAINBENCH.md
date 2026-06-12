@@ -107,9 +107,22 @@ HEAD's fresh run against it:
   is recorded in the run output. It is not available to CI.
 
 The committed baseline is diff-stable by construction (metrics rounded to 4
-decimals, keys sorted, receipts excluded) so its diff IS the PR's visible
-BrainBench delta. Holdout fixtures (~15%) are excluded from the gate and
-scored only in published runs (`--include-holdout`).
+decimals, keys sorted, receipts excluded; the run CONFIG — holdout/llm/
+harness/suite sets — is bound into it, and comparisons across mismatched
+configs are inconclusive). Same-hash hardening: any committed-baseline edit
+without a fixture change must byte-match the actual run (receipts-backed), a
+regressing receipts-backed update still needs a `justification`, gold_total
+may not move at all under an unchanged corpus, and the CI script refuses a
+working-tree baseline deletion. Holdout fixtures (~15%) are excluded from the
+gate and scored only in published runs (`--include-holdout`).
+
+Accepted residuals (review-enforced, by design): a `justification` string is
+judged by the human reviewer, not parsed; count-preserving corpus dilution
+(replacing hard fixtures with easy ones at equal gold_total) is visible only
+in the fixture diff; and the ratchet does not auto-tighten — improvements
+aren't banked into main's baseline until a PR updates it (a regression back
+to the stale baseline level passes; periodic re-baselining is the operator's
+job, filed as a TODO).
 
 ## Gold methodology
 

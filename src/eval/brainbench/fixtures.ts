@@ -188,6 +188,7 @@ export function validateGold(file: string, raw: unknown, fixture: BrainBenchFixt
     throw new FixtureValidationError(file, 'gold.turns must be an object keyed by turn_id');
   }
   const turnIds = new Set(fixture.turns.map((t: FixtureTurn) => String(t.turn_id)));
+  const turnRoleById = new Map(fixture.turns.map((t: FixtureTurn) => [String(t.turn_id), t.role]));
   for (const [key, val] of Object.entries(g.turns as Record<string, unknown>)) {
     if (!turnIds.has(key)) {
       throw new FixtureValidationError(file, `gold.turns["${key}"] has no matching fixture turn`);
@@ -196,6 +197,19 @@ export function validateGold(file: string, raw: unknown, fixture: BrainBenchFixt
     assertOnlyKeys(file, tg, TURN_GOLD_KEYS, `gold.turns["${key}"]`);
     if (typeof tg.should_retrieve !== 'boolean') {
       throw new FixtureValidationError(file, `gold.turns["${key}"].should_retrieve must be boolean`);
+    }
+    // Retrieval gold on ASSISTANT turns would never be scored — the harness
+    // replays user turns only (adversarial finding: silent coverage loss).
+    // Assistant-turn gold may carry gold_facts (write-back reads every turn)
+    // but never a retrieval expectation.
+    if (
+      turnRoleById.get(key) === 'assistant' &&
+      (tg.should_retrieve === true || tg.gold_slugs !== undefined || tg.acceptable_slugs !== undefined)
+    ) {
+      throw new FixtureValidationError(
+        file,
+        `gold.turns["${key}"] carries retrieval gold on an ASSISTANT turn — only user turns are replayed for retrieval scoring`,
+      );
     }
     {
       // On a retrieval-suite fixture, should_retrieve=true REQUIRES non-empty

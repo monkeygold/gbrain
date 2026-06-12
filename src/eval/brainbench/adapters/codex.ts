@@ -55,7 +55,10 @@ export class CodexAdapter implements HarnessAdapter {
       if (!rows.length) return '';
       const lines = ['## Brain index', ...rows.map((r) => `- ${r.title} → \`${r.slug}\``)];
       return lines.join('\n');
-    } catch {
+    } catch (err) {
+      // Loud, not silent: an empty preamble skews avg_injected_tokens with
+      // no trace otherwise (adversarial hygiene finding).
+      process.stderr.write(`[brainbench codex] preamble build failed: ${(err as Error).message}\n`);
       return '';
     }
   }

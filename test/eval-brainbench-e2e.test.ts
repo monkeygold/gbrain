@@ -17,7 +17,13 @@ let fixtures: string;
 let gold: string;
 
 function run(args: string[], cwd = REPO): { exitCode: number; stdout: string; stderr: string } {
-  const proc = Bun.spawnSync(['bun', 'src/cli.ts', 'eval', 'brainbench', ...args], {
+  // Foreign-corpus runs opt OUT of the repo's committed baseline: the
+  // poisoning defense requires any committed-vs-main divergence to match the
+  // current run, and the repo's main.json never matches a tmp-corpus run.
+  const full = args.includes('--committed-baseline')
+    ? args
+    : [...args, '--committed-baseline', join(root, 'no-committed-baseline.json')];
+  const proc = Bun.spawnSync(['bun', 'src/cli.ts', 'eval', 'brainbench', ...full], {
     cwd,
     env: { ...process.env, GBRAIN_QUIET: '1' },
     stdout: 'pipe',

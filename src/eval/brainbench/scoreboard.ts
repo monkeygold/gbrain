@@ -209,6 +209,18 @@ export function compareBaselines(
         detail: `${cur.gold_failed - mainCounts.gold_failed} newly-failed gold item(s)`,
       });
     }
+    // Same corpus MUST yield identical gold_total (adversarial finding: a
+    // code-only change that breaks the scorer/loader could silently hollow
+    // scoring coverage to zero failures). Free invariant — enforce it.
+    if (sameHash && cur.gold_total !== mainCounts.gold_total) {
+      breaches.push({
+        cell,
+        metric: 'gold_total',
+        baseline: mainCounts.gold_total,
+        current: cur.gold_total,
+        detail: 'scoring coverage changed WITHOUT a fixture change — scorer/loader behavior shifted',
+      });
+    }
     // Corpus hollowing (red-team finding): in bless mode, deleting failing
     // fixtures (or flipping them holdout) shrinks gold_total and IMPROVES
     // every rate — require a justification for shrunken coverage exactly like
@@ -296,15 +308,12 @@ export function compareBaselines(
   // SAME-HASH committed-baseline drift (red-team finding: two-PR gate
   // poisoning). Any edit to the committed baseline without a fixture change
   // must be receipts-backed by THIS run — otherwise a PR can doctor the file
-  // main's future gates compare against. Only consulted when the committed
-  // file pertains to this corpus (hash match); foreign-corpus runs ignore it.
+  // main's future gates compare against. NO hash carve-out (adversarial
+  // finding: a doctored committed file with a FOREIGN fixtures_hash slipped
+  // through a hash-matched check) — callers running foreign corpora opt out
+  // by pointing --committed-baseline elsewhere.
   const committed = opts.committedBaseline;
-  if (
-    sameHash &&
-    committed &&
-    committed.fixtures_hash === current.fixtures_hash &&
-    !baselineDataEquals(committed, main)
-  ) {
+  if (sameHash && committed && !baselineDataEquals(committed, main)) {
     if (!baselineDataEquals(committed, current)) {
       return {
         verdict: 'inconclusive',

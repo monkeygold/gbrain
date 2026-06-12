@@ -72,7 +72,8 @@ function usage(): void {
       `  --allow-regression "reason" One-off escape hatch; reason recorded in the output.\n` +
       `  --llm                       Write-back suite uses the real LLM extractor.\n` +
       `  --budget-usd N              Spend cap for --llm (default: $${DEFAULT_LLM_BUDGET_USD}).\n` +
-      `  --seed N                    Recorded in the receipt (default: 42).\n` +
+      `  --seed N                    Recorded in the receipt (default: 42). Reserved —\n` +
+      `                              the v1 run is fully deterministic; no knob consumes it yet.\n` +
       `  -h, --help                  Show this help.\n\n` +
       `Exit codes: 0 pass · 1 regression · 2 error/inconclusive/usage.\n`,
   );

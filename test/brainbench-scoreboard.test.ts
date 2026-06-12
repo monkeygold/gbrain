@@ -235,11 +235,21 @@ describe('red-team hardening (gate gaming vectors)', () => {
     expect(out.notes.join(' ')).toContain('intentional trade');
   });
 
-  test('foreign-corpus committed baseline (hash mismatch with current) is ignored in same-hash mode', () => {
+  test('poisoning v2: a FOREIGN-hash doctored committed baseline is still inconclusive (no hash carve-out)', () => {
     const main = mkBaseline([cell({ gold_failed: 1 })]);
     const current = mkBaseline([cell({ gold_failed: 1 })]);
     const foreign = mkBaseline([cell({ gold_failed: 99 })], 'some-other-corpus');
-    expect(compareBaselines(current, main, { committedBaseline: foreign }).verdict).toBe('pass');
+    const out = compareBaselines(current, main, { committedBaseline: foreign });
+    expect(out.verdict).toBe('inconclusive');
+    expect(out.notes.join(' ')).toContain('receipts-backed');
+  });
+
+  test('same-hash gold_total drift (scorer/loader shift under unchanged corpus) is a breach', () => {
+    const main = mkBaseline([cell({ gold_total: 10, gold_failed: 0 })]);
+    const current = mkBaseline([cell({ gold_total: 4, gold_failed: 0 })]);
+    const out = compareBaselines(current, main);
+    expect(out.verdict).toBe('regression');
+    expect(out.breaches.some((b) => b.metric === 'gold_total' && b.detail.includes('WITHOUT a fixture change'))).toBe(true);
   });
 });
 

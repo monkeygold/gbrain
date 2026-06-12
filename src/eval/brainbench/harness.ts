@@ -243,7 +243,15 @@ export async function runBrainBench(
         }
       }
 
-      if (lf.fixture.suites.includes('write-back') && wantedSuites.has('write-back')) {
+      // Continuity writers are EXCLUDED here even when they declare both
+      // retrieval and write-back suites — the pair loop owns their write-back
+      // score (adversarial finding: a hybrid writer would double-count into
+      // the cell from two differently-seeded brain states).
+      if (
+        lf.fixture.suites.includes('write-back') &&
+        wantedSuites.has('write-back') &&
+        !lf.fixture.continuity
+      ) {
         const score = await runWriteBack(engine, lf.fixture, lf.gold, {
           llm: opts.llm,
           budgetUsd: opts.budgetUsd,

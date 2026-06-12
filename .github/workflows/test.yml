@@ -171,12 +171,12 @@ jobs:
       - run: bun install
       - run: bash scripts/ci-brainbench-gate.sh
         env:
-          BRAINBENCH_OUT: /tmp/brainbench-result.json
+          BRAINBENCH_OUT: ${{ runner.temp }}/brainbench-result.json
       - name: BrainBench delta → step summary
         if: always()
         run: |
-          if [ -f /tmp/brainbench-result.json ]; then
-            bun scripts/render-brainbench-delta.ts /tmp/brainbench-result.json >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "${{ runner.temp }}/brainbench-result.json" ]; then
+            bun scripts/render-brainbench-delta.ts "${{ runner.temp }}/brainbench-result.json" >> "$GITHUB_STEP_SUMMARY"
           fi
 
   slow-entity-resolve-perf:

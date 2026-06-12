@@ -444,7 +444,8 @@ function genWriteBack(rng: Rng, u: Universe, i: number): Emitted {
   const c = u.companies[p.companyIdx];
   const claimCount = 2 + (i % 2); // 2 or 3 gold facts
   const picks = rng.shuffle(WB_CLAIMS).slice(0, claimCount);
-  // Two segments: a >30min gap after the first claim exercises segmentation.
+  // Two segments: a >30min gap between the opener exchange and the claims
+  // exercises segmentation (all claims land in the second segment).
   const ts = tsSeries(rng, claimCount + 2, 1);
   const gapped = [...ts];
   for (let k = 2; k < gapped.length; k++) {

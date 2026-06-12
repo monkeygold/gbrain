@@ -19,9 +19,19 @@ BASELINE_PATH="evals/brainbench/baselines/main.json"
 MAIN_REF="${BRAINBENCH_MAIN_REF:-origin/master}"
 # mktemp default (review finding): a fixed world-writable /tmp path is a
 # symlink-planting target on shared hosts. CI overrides via BRAINBENCH_OUT.
-OUT="${BRAINBENCH_OUT:-$(mktemp /tmp/brainbench-result-XXXXXX.json)}"
+if [ -n "${BRAINBENCH_OUT:-}" ]; then
+  OUT="$BRAINBENCH_OUT"
+  OUT_IS_TEMP=0
+else
+  OUT="$(mktemp /tmp/brainbench-result-XXXXXX.json)"
+  OUT_IS_TEMP=1
+fi
 MAIN_BASELINE="$(mktemp /tmp/brainbench-main-baseline-XXXXXX.json)"
-trap 'rm -f "$MAIN_BASELINE"' EXIT
+cleanup() {
+  rm -f "$MAIN_BASELINE"
+  [ "$OUT_IS_TEMP" = "1" ] && rm -f "$OUT" || true
+}
+trap cleanup EXIT
 
 # Fail HARD when the ref itself is broken — only a genuinely-absent baseline
 # may take the ungated first-landing path (review finding: an unfetched ref
