@@ -56,10 +56,13 @@ export async function runInit(args: string[]) {
   const expModelIdx = args.indexOf('--expansion-model');
   // v0.27: --chat-model PROVIDER:MODEL — default subagent driver.
   const chatModelIdx = args.indexOf('--chat-model');
+  const envEmbeddingModel = process.env.GBRAIN_EMBEDDING_MODEL || null;
+  const envEmbeddingDimsRaw = process.env.GBRAIN_EMBEDDING_DIMENSIONS || null;
+  const envEmbeddingDims = envEmbeddingDimsRaw ? parseInt(envEmbeddingDimsRaw, 10) : null;
   const aiOpts = await resolveAIOptions(
-    embModelIdx !== -1 ? args[embModelIdx + 1] : null,
+    embModelIdx !== -1 ? args[embModelIdx + 1] : envEmbeddingModel,
     modelShortIdx !== -1 ? args[modelShortIdx + 1] : null,
-    embDimsIdx !== -1 ? parseInt(args[embDimsIdx + 1], 10) : null,
+    embDimsIdx !== -1 ? parseInt(args[embDimsIdx + 1], 10) : envEmbeddingDims,
     expModelIdx !== -1 ? args[expModelIdx + 1] : null,
     chatModelIdx !== -1 ? args[chatModelIdx + 1] : null,
   );

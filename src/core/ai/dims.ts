@@ -93,8 +93,11 @@ export function dimsProviderOptions(
   switch (implementation) {
     case 'native-openai': {
       // text-embedding-3-* supports dimensions; text-embedding-ada-002 does not.
+      // Qwen3-Embedding-* also supports dimensions (MRL) when routed through
+      // the native-openai adapter via OpenAI-compatible endpoints (OpenRouter).
+      // Use includes() because modelId may carry a vendor prefix (e.g. "qwen/qwen3-embedding-8b").
       // OpenAI embeddings are symmetric — inputType ignored.
-      if (modelId.startsWith('text-embedding-3')) {
+      if (modelId.startsWith('text-embedding-3') || modelId.includes('qwen3-embedding')) {
         return { openai: { dimensions: dims } };
       }
       return undefined;
@@ -173,6 +176,14 @@ export function dimsProviderOptions(
       // silently ignored and the provider returns its default size.
       // Symmetric retrieval — inputType ignored.
       if (modelId === 'text-embedding-v3' || modelId === 'embedding-3') {
+        return { openaiCompatible: { dimensions: dims } };
+      }
+      // Qwen3-Embedding family (0.6B/4B/8B) — Matryoshka (MRL) supports
+      // reduced dims via the `dimensions` parameter on the OpenAI-compat
+      // path. Without this, litellm/openrouter returns native 4096d for
+      // 8B, which mismatches a brain configured for 2000d and hard-fails.
+      // Symmetric retrieval — inputType ignored.
+      if (modelId.includes('qwen3-embedding')) {
         return { openaiCompatible: { dimensions: dims } };
       }
       // MiniMax embo-01 takes a `type: 'db' | 'query'` field for asymmetric

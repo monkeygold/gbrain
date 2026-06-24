@@ -1,5 +1,5 @@
 import type { BrainEngine } from '../core/engine.ts';
-import { embedBatch } from '../core/embedding.ts';
+import { embedBatch, getEmbeddingModelName } from '../core/embedding.ts';
 import type { ChunkInput } from '../core/types.ts';
 import { chunkText } from '../core/chunkers/recursive.ts';
 import { createProgress, type ProgressReporter } from '../core/progress.ts';
@@ -210,11 +210,13 @@ async function embedPage(
   for (let j = 0; j < toEmbed.length; j++) {
     embeddingMap.set(toEmbed[j].chunk_index, embeddings[j]);
   }
+  const currentEmbeddingModel = getEmbeddingModelName();
   const updated: ChunkInput[] = chunks.map(c => ({
     chunk_index: c.chunk_index,
     chunk_text: c.chunk_text,
     chunk_source: c.chunk_source,
     embedding: embeddingMap.get(c.chunk_index),
+    ...(embeddingMap.has(c.chunk_index) ? { model: currentEmbeddingModel } : {}),
     token_count: c.token_count || Math.ceil(c.chunk_text.length / 4),
   }));
 
@@ -462,11 +464,13 @@ async function embedAllStale(
           for (let j = 0; j < stale.length; j++) {
             staleIdxToEmbedding.set(stale[j].chunk_index, embeddings[j]);
           }
+          const currentEmbeddingModel = getEmbeddingModelName();
           const merged: ChunkInput[] = existing.map(c => ({
             chunk_index: c.chunk_index,
             chunk_text: c.chunk_text,
             chunk_source: c.chunk_source,
             embedding: staleIdxToEmbedding.get(c.chunk_index) ?? undefined,
+            ...(staleIdxToEmbedding.has(c.chunk_index) ? { model: currentEmbeddingModel } : {}),
             token_count: c.token_count || Math.ceil(c.chunk_text.length / 4),
           }));
           await engine.upsertChunks(slug, merged, { sourceId: keySourceId });

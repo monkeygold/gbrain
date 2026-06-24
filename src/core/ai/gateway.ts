@@ -547,7 +547,7 @@ export function isAvailable(touchpoint: TouchpointKind): boolean {
         ? getRerankerModel() ?? null
         : null;
     if (!modelStr) return false;
-    const { recipe } = resolveRecipe(modelStr);
+    const { parsed, recipe } = resolveRecipe(modelStr);
 
     // Recipe must actually support the requested touchpoint.
     // Anthropic declares only expansion + chat (no embedding model); requesting
@@ -566,7 +566,14 @@ export function isAvailable(touchpoint: TouchpointKind): boolean {
       Array.isArray(touchpointConfig.models) &&
       touchpointConfig.models.length === 0 &&
       (recipe.id === 'litellm' || isUserProvided)
-    ) return false;
+    ) {
+      // User-driven backends (LiteLLM, llama-server, etc.) intentionally ship
+      // with an empty recipe model list. The selected provider:model string is
+      // already the user's allow-list. Treat it as available when a concrete
+      // model id was configured; provider/network errors still surface at the
+      // actual call site instead of silently disabling vector search.
+      if (!parsed.modelId.trim()) return false;
+    }
 
     // For openai-compatible without auth requirements (Ollama local), treat as always-available.
     const required = recipe.auth_env?.required ?? [];

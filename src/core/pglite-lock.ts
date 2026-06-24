@@ -79,13 +79,12 @@ export async function acquireLock(dataDir: string | undefined, opts?: { timeoutM
         if (!isProcessAlive(lockPid)) {
           // Stale lock — clean it up
           try { rmSync(lockDir, { recursive: true, force: true }); } catch { /* race condition, try again */ }
-        } else if (Date.now() - lockTime > STALE_THRESHOLD_MS) {
-          // Lock held for too long — assume stale (e.g., process hung)
-          // Still alive but probably stuck — force remove
-          try { rmSync(lockDir, { recursive: true, force: true }); } catch { /* race condition */ }
         } else {
-          // Lock is held by a live process — wait and retry
-          await new Promise(r => setTimeout(r, 1000));
+          // Lock is held by a live process — never force-remove it based on
+          // age alone. Long embed/autopilot cycles can legitimately exceed the
+          // stale threshold; removing a live lock risks concurrent PGLite access.
+          const remaining = timeoutMs - (Date.now() - startTime);
+          await new Promise(r => setTimeout(r, Math.max(1, Math.min(1000, remaining))));
           continue;
         }
       } catch {
