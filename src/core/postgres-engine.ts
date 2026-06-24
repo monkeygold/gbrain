@@ -3528,6 +3528,22 @@ export class PostgresEngine implements BrainEngine {
     return finalizeLastSeen(entitySlug, row?.last_date ?? null, row?.last_event_slug ?? null, opts?.asof);
   }
 
+  async upsertEventProjection(opts: { depthSlug: string; eventSlug: string; date: string; summary: string; detail?: string; sourceId?: string }): Promise<{ projected: boolean }> {
+    const sql = this.sql;
+    const sourceId = opts.sourceId ?? 'default';
+    const rows = await sql`
+      INSERT INTO timeline_entries (page_id, date, source, summary, detail, event_page_id)
+      SELECT dp.id, ${opts.date}::date, ${'life-chronicle:event:' + opts.eventSlug}, ${opts.summary}, ${opts.detail ?? ''}, ep.id
+      FROM pages dp, pages ep
+      WHERE dp.slug = ${opts.depthSlug} AND dp.source_id = ${sourceId}
+        AND ep.slug = ${opts.eventSlug} AND ep.source_id = ${sourceId}
+      ON CONFLICT (event_page_id, date) WHERE event_page_id IS NOT NULL
+      DO UPDATE SET summary = EXCLUDED.summary, detail = EXCLUDED.detail,
+                    page_id = EXCLUDED.page_id, source = EXCLUDED.source
+      RETURNING id`;
+    return { projected: rows.length > 0 };
+  }
+
   // Raw data
   async putRawData(
     slug: string,

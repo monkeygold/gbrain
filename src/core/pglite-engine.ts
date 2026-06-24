@@ -3473,6 +3473,22 @@ export class PGLiteEngine implements BrainEngine {
     return finalizeLastSeen(entitySlug, row?.last_date ?? null, row?.last_event_slug ?? null, opts?.asof);
   }
 
+  async upsertEventProjection(opts: { depthSlug: string; eventSlug: string; date: string; summary: string; detail?: string; sourceId?: string }): Promise<{ projected: boolean }> {
+    const sourceId = opts.sourceId ?? 'default';
+    const r = await this.db.query(
+      `INSERT INTO timeline_entries (page_id, date, source, summary, detail, event_page_id)
+       SELECT dp.id, $1::date, $2, $3, $4, ep.id
+       FROM pages dp, pages ep
+       WHERE dp.slug = $5 AND dp.source_id = $6 AND ep.slug = $7 AND ep.source_id = $6
+       ON CONFLICT (event_page_id, date) WHERE event_page_id IS NOT NULL
+       DO UPDATE SET summary = EXCLUDED.summary, detail = EXCLUDED.detail,
+                     page_id = EXCLUDED.page_id, source = EXCLUDED.source
+       RETURNING id`,
+      [opts.date, 'life-chronicle:event:' + opts.eventSlug, opts.summary, opts.detail ?? '', opts.depthSlug, sourceId, opts.eventSlug],
+    );
+    return { projected: r.rows.length > 0 };
+  }
+
   // Raw data
   async putRawData(
     slug: string,

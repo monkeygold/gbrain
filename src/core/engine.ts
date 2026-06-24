@@ -1392,6 +1392,13 @@ export interface BrainEngine {
   getSince(date: string, opts?: ChronicleTimelineOpts): Promise<ChronicleTimelineRow[]>;
   /** Most recent date an entity appears (its own page or an event's `who`). */
   getLastSeen(entitySlug: string, opts?: { asof?: string; sourceId?: string; sourceIds?: string[] }): Promise<LastSeenResult>;
+  /**
+   * Upsert the date-index projection row for an event page: page_id = depth
+   * page, event_page_id = event page, keyed (event_page_id, date). Re-extraction
+   * with a changed summary UPDATEs (no duplicate). Returns projected=false when
+   * either slug is missing in the source. Idempotent.
+   */
+  upsertEventProjection(opts: { depthSlug: string; eventSlug: string; date: string; summary: string; detail?: string; sourceId?: string }): Promise<{ projected: boolean }>;
 
   // Raw data
   /**
