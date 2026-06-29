@@ -31,6 +31,16 @@ import {
 
 const RRF_K = 60;
 const COMPILED_TRUTH_BOOST = 2.0;
+
+// ── OPTIMIZATION: in-memory exact-match LRU cache for query repeats ──
+// Avoids the embedQuery() round-trip (~500-2000ms via OpenRouter) for
+// identical repeated queries in the same process (MCP server, long-running
+// CLI). The semantic cache in hybridSearchCached requires an embedding to
+// look up similar queries, which defeats the purpose for exact repeats.
+const _exactQueryCache = new Map<string, { results: SearchResult[]; ts: number }>();
+const _exactQueryCacheMaxSize = 128;
+const _exactQueryCacheTtlMs = 300_000; // 5 minutes
+// ── /OPTIMIZATION ──
 /**
  * Backlink boost coefficient. Score is multiplied by (1 + BACKLINK_BOOST_COEF * log(1 + count)).
  * - 0 backlinks: factor = 1.0 (no boost).
@@ -225,6 +235,10 @@ export async function hybridSearch(
   query: string,
   opts?: HybridSearchOpts,
 ): Promise<SearchResult[]> {
+  // ── PERF INSTRUMENTATION ──
+  const _t0 = performance.now();
+  const _timings: Record<string, number> = {};
+  // ── /PERF INSTRUMENTATION ──
   // v0.32.3 search-lite mode: resolve the active mode + per-key overrides
   // once at entry. Mode supplies DEFAULTS for intentWeighting, tokenBudget,
   // expansion, and searchLimit when the caller leaves those undefined.
@@ -246,6 +260,7 @@ export async function hybridSearch(
       searchLimit: opts?.limit,
     },
   });
+  _timings.mode_resolve = performance.now() - _t0;
 
   const limit = opts?.limit || resolvedMode.searchLimit;
   const offset = opts?.offset || 0;
@@ -325,7 +340,9 @@ export async function hybridSearch(
   }
 
   // Run keyword search (always available, no API key needed)
+  const _tKW = performance.now();
   const keywordResults = await engine.searchKeyword(query, searchOpts);
+  _timings.keyword_search = performance.now() - _tKW;
 
   // v0.29.1: resolve salience/recency from caller (back-compat aliases for
   // PR #618's `recencyBoost` numeric scale) or fall back to the heuristic.
@@ -411,11 +428,22 @@ export async function hybridSearch(
     // v0.35.0.0+: query-side embedding. For asymmetric providers (ZE zembed-1,
     // Voyage v3+) routes input_type='query' through the embed seam; symmetric
     // providers ignore the field — no behavior change.
-    const embeddings = await Promise.all(queries.map(q => embedQuery(q)));
+    // ── OPTIMIZATION: 5s timeout on embedding to avoid OpenRouter outliers (10s+) ──
+    const _tEmb = performance.now();
+    const _embedTimeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('embed_query timeout (5s)')), 5000)
+    );
+    const embeddings = await Promise.race([
+      Promise.all(queries.map(q => embedQuery(q))),
+      _embedTimeout,
+    ]);
+    _timings.embed_query = performance.now() - _tEmb;
     queryEmbedding = embeddings[0];
+    const _tVS = performance.now();
     vectorLists = await Promise.all(
       embeddings.map(emb => engine.searchVector(emb, searchOpts)),
     );
+    _timings.vector_search = performance.now() - _tVS;
   } catch {
     // Embedding failure is non-fatal, fall back to keyword-only
   }
@@ -461,16 +489,20 @@ export async function hybridSearch(
     { list: keywordResults, k: keywordK },
   ];
   let fused = rrfFusionWeighted(allLists, detail !== 'high');
+  _timings.rrf_fusion = performance.now() - _t0 - (_timings.embed_query ?? 0) - (_timings.vector_search ?? 0) - (_timings.keyword_search ?? 0) - (_timings.mode_resolve ?? 0);
 
   // Cosine re-scoring before dedup so semantically better chunks survive
+  const _tCos = performance.now();
   if (queryEmbedding) {
     fused = await cosineReScore(engine, fused, queryEmbedding);
   }
+  _timings.cosine_rescore = performance.now() - _tCos;
 
   // v0.29.1: post-fusion stages (backlink + salience + recency) run via
   // runPostFusionStages so all three early-return paths share the same
   // boost surface. Salience and recency are independent axes — either,
   // both, or neither fires depending on resolved modes.
+  const _tPostFusion = performance.now();
   if (fused.length > 0) {
     await runPostFusionStages(engine, fused, postFusionOpts);
     // v0.32.x search-lite: intent exact-match boost (entity/event intents).
@@ -480,6 +512,7 @@ export async function hybridSearch(
     }
     fused.sort((a, b) => b.score - a.score);
   }
+  _timings.post_fusion = performance.now() - _tPostFusion;
 
   // v0.20.0 Cathedral II Layer 7 (A2): two-pass structural expansion.
   // Default OFF. When opts.walkDepth > 0 OR opts.nearSymbol is set, we
@@ -531,7 +564,9 @@ export async function hybridSearch(
   // aliasing in the postFusionOpts resolver near line ~256.
 
   // Dedup
+  const _tDedup = performance.now();
   const deduped = dedupResults(fused, dedupOpts);
+  _timings.dedup = performance.now() - _tDedup;
 
   // Auto-escalate: if detail=low returned 0, retry with high. The inner
   // call's onMeta fires with the escalated detail_resolved; do NOT also
@@ -555,9 +590,11 @@ export async function hybridSearch(
     model: resolvedMode.reranker_model,
     timeoutMs: resolvedMode.reranker_timeout_ms,
   };
+  const _tRerank = performance.now();
   const reranked = rerankerOpts.enabled
     ? await applyReranker(query, deduped, rerankerOpts as any)
     : deduped;
+  _timings.reranker = performance.now() - _tRerank;
 
   const sliced = reranked.slice(offset, offset + limit);
   // v0.32.3 search-lite: budget enforcement at the main return path.
@@ -566,6 +603,13 @@ export async function hybridSearch(
   // the same budget behavior as the production query op.
   const { results: budgeted, meta: budgetMeta } = enforceTokenBudget(sliced, resolvedMode.tokenBudget);
   lastResultsCount = budgeted.length;
+
+  // ── PERF: emit timings via onMeta ──
+  _timings.total = performance.now() - _t0;
+  if (opts?.onMeta) {
+    try { (opts.onMeta as any)({ _timings }); } catch {}
+  }
+  console.error(`[hybridSearch PERF] query="${query.slice(0, 40)}" ${JSON.stringify(_timings)}`);
   emitMeta({
     vector_enabled: true,
     detail_resolved: detailResolved,
@@ -605,6 +649,20 @@ export async function hybridSearchCached(
   query: string,
   opts?: HybridSearchOpts,
 ): Promise<SearchResult[]> {
+  // ── OPTIMIZATION: in-memory exact-match LRU cache ──
+  // The semantic cache below requires embedQuery() to look up similar
+  // queries, which costs ~500-2000ms via OpenRouter. For exact query
+  // repeats (common in conversational agents), this LRU returns in <1ms.
+  const _cacheKey = `${query}\x00${opts?.limit ?? 20}\x00${opts?.sourceId ?? ''}\x00${opts?.detail ?? ''}`;
+  const _cached = _exactQueryCache.get(_cacheKey);
+  if (_cached && (Date.now() - _cached.ts) < _exactQueryCacheTtlMs) {
+    if (opts?.onMeta) {
+      try { (opts.onMeta as any)({ _exactCacheHit: true }); } catch {}
+    }
+    return _cached.results.slice(opts?.offset ?? 0, (opts?.offset ?? 0) + (opts?.limit ?? 20));
+  }
+  // ── /OPTIMIZATION ──
+
   // v0.32.3 search-lite mode: resolve mode + per-key overrides once. The
   // resolved knob set drives cache enable/threshold/TTL AND the knobs_hash
   // that scopes the cache row so a tokenmax write can't be served to a
@@ -756,6 +814,17 @@ export async function hybridSearchCached(
       .store(query, queryEmbedding, results, finalMeta, { sourceId: opts?.sourceId, knobsHash: cacheKnobsHash })
       .catch(() => { /* swallow */ });
   }
+
+  // ── OPTIMIZATION: write-back to exact-match LRU ──
+  if (results.length > 0) {
+    _exactQueryCache.set(_cacheKey, { results, ts: Date.now() });
+    // Evict oldest entries if cache is full
+    if (_exactQueryCache.size > _exactQueryCacheMaxSize) {
+      const oldest = _exactQueryCache.keys().next().value;
+      if (oldest) _exactQueryCache.delete(oldest);
+    }
+  }
+  // ── /OPTIMIZATION ──
 
   return budgeted;
 }
